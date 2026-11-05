@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SolidCraft Enhanced - Architecture Visualization</title>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/reactflow@11/dist/umd/index.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/reactflow@11/dist/style.css" />
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: #0d1117;
+            color: #e6edf3;
+            min-height: 100vh;
+        }
+        #root {
+            width: 100vw;
+            height: 100vh;
+        }
+        .react-flow {
+            width: 100%;
+            height: 100%;
+            background: #0d1117;
+        }
+        .controls {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 100;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .controls button {
+            padding: 8px 16px;
+            background: #21262d;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            color: #e6edf3;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+        .controls button:hover {
+            background: #30363d;
+            border-color: #58a6ff;
+        }
+        .controls button.active {
+            background: #1f6feb;
+            border-color: #58a6ff;
+        }
+        .legend {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            z-index: 100;
+            background: rgba(13, 17, 23, 0.95);
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 16px;
+            max-width: 250px;
+        }
+        .legend h3 {
+            margin-bottom: 12px;
+            font-size: 14px;
+            color: #58a6ff;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 6px 0;
+            font-size: 12px;
+        }
+        .legend-color {
+            width: 16px;
+            height: 16px;
+            border-radius: 4px;
+        }
+        .node-info {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            z-index: 100;
+            background: rgba(13, 17, 23, 0.95);
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 16px;
+            max-width: 350px;
+            min-width: 250px;
+        }
+        .node-info h3 {
+            margin-bottom: 8px;
+            color: #58a6ff;
+        }
+        .node-info p {
+            font-size: 13px;
+            line-height: 1.5;
+            color: #8b949e;
+        }
+        .node-info .meta {
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid #30363d;
+            font-size: 11px;
+            color: #6e7681;
+        }
+        .search-box {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 100;
+        }
+        .search-box input {
+            padding: 8px 16px;
+            background: #21262d;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            color: #e6edf3;
+            font-size: 14px;
+            width: 300px;
+        }
+        .search-box input:focus {
+            outline: none;
+            border-color: #58a6ff;
+        }
+        .minimap {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            z-index: 100;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useCallback, useEffect, useRef } = React;
+        const {
+            ReactFlow,
+            Background,
+            Controls,
+            MiniMap,
+            NodeToolbar,
+            Handle,
+            Position,
+            useNodesState,
+            useEdgesState,
+            addEdge,
+            Edge,
+            Node,
+            ConnectionLine,
+        } = ReactFlow;
+
+        // Node types
+        const nodeTypes = {
+            crate: CrateNode,
+            app: AppNode,
+            external: ExternalNode,
+            transport: TransportNode,
+        };
+
+        // Edge types
+        const edgeTypes = {
+            dependency: DependencyEdge,
+        };
+
+        // Initial nodes - SolidCraft Architecture
+        const initialNodes = [
+            // Core crates
+            { id: 'geom', type: 'crate', position: { x: 100, y: 100 }, data: { label: 'solidcraft-geom', description: 'Core geometry primitives: points, vectors, curves, surfaces, transforms', category: 'Foundation' }},
+            { id: 'sketch', type: 'crate', position: { x: 100, y: 250 }, data: { label: 'solidcraft-sketch', description: '2D constraint solver, sketch entities, dimensions, parameters', category: 'Foundation' }},
+            { id: 'kernel', type: 'crate', position: { x: 100, y: 400 }, data: { label: 'solidcraft-kernel', description: 'B-rep modeling kernel (SMLib), boolean ops, features, topology', category: 'Foundation' }},
+            { id: 'engine', type: 'crate', position: { x: 350, y: 250 }, data: { label: 'solidcraft-engine', description: 'Session, command registry, undo/redo, selection, parameter mgmt', category: 'Core' }},
+            { id: 'doc', type: 'crate', position: { x: 600, y: 100 }, data: { label: 'solidcraft-doc', description: 'Document format, serialization, design containers, history', category: 'Core' }},
+            { id: 'io', type: 'crate', position: { x: 600, y: 250 }, data: { label: 'solidcraft-io', description: 'STEP, IGES, STL, 3MF, OBJ, GLTF import/export, point clouds', category: 'Core' }},
+            { id: 'render', type: 'crate', position: { x: 600, y: 400 }, data: { label: 'solidcraft-render', description: 'wgpu/egui rendering, tessellation, PBR materials, raytracing', category: 'Core' }},
+            { id: 'gpu', type: 'crate', position: { x: 850, y: 250 }, data: { label: 'solidcraft-gpu', description: 'GPU abstraction, render job host, headless rendering, screenshots', category: 'Core' }},
+            { id: 'profile', type: 'crate', position: { x: 100, y: 550 }, data: { label: 'solidcraft-profile', description: 'Profiling, timing spans, Chrome trace export, perf analysis', category: 'Infrastructure' }},
+            { id: 'derive', type: 'crate', position: { x: 350, y: 400 }, data: { label: 'solidcraft-derive', description: 'Proc macros for command params, schemas, serialization', category: 'Infrastructure' }},
+            { id: 'testkit', type: 'crate', position: { x: 350, y: 550 }, data: { label: 'solidcraft-testkit', description: 'Testing utilities, model cache, snapshot comparison', category: 'Infrastructure' }},
+            
+            // New Africa crate
+            { id: 'africa', type: 'crate', position: { x: 850, y: 550 }, data: { label: 'solidcraft-africa', description: 'African domain parametric models: solar, water, housing, agriculture, manufacturing, construction', category: 'Domain Extension' }},
+            
+            // MCP crate
+            { id: 'mcp', type: 'crate', position: { x: 600, y: 550 }, data: { label: 'solidcraft-mcp', description: 'MCP server with stdio, HTTP, SSE, WebSocket transports for AI agents', category: 'AI Integration' }},
+            
+            // Benchmark crate
+            { id: 'benchmark', type: 'crate', position: { x: 1100, y: 400 }, data: { label: 'solidcraft-benchmark', description: 'Criterion benchmarks, regression detection, CI/CD integration', category: 'Quality' }},
+            
+            // Apps
+            { id: 'cli', type: 'app', position: { x: 1100, y: 100 }, data: { label: 'solidcraft-cli', description: 'Headless CLI: run, eval, snapshot, MCP server, benchmarks', category: 'Application' }},
+            { id: 'web', type: 'app', position: { x: 1100, y: 250 }, data: { label: 'solidcraft-web', description: 'WASM web app, browser CAD, WASM MCP client', category: 'Application' }},
+            { id: 'desktop', type: 'app', position: { x: 1350, y: 175 }, data: { label: 'solidcraft (desktop)', description: 'Native desktop app with egui, full CAD UI', category: 'Application' }},
+            
+            // External dependencies
+            { id: 'solidcore', type: 'external', position: { x: -200, y: 250 }, data: { label: 'solidcore (B-rep kernel)', description: 'NVIDIA SMLib port - B-rep kernel, Record layer, body files', category: 'External' }},
+            { id: 'egui', type: 'external', position: { x: 1600, y: 100 }, data: { label: 'egui', description: 'Immediate mode GUI, native & web', category: 'External' }},
+            { id: 'wgpu', type: 'external', position: { x: 1600, y: 250 }, data: { label: 'wgpu', description: 'Cross-platform GPU API, WebGPU', category: 'External' }},
+            { id: 'wasm', type: 'external', position: { x: 1600, y: 400 }, data: { label: 'wasm-bindgen', description: 'Rust ↔ JS/WASM interop', category: 'External' }},
+            { id: 'axum', type: 'external', position: { x: 1600, y: 550 }, data: { label: 'axum', description: 'HTTP/SSE/WebSocket server for MCP', category: 'External' }},
+            
+            // Transport layer
+            { id: 'stdio', type: 'transport', position: { x: 600, y: 700 }, data: { label: 'stdio Transport', description: 'Newline-delimited JSON-RPC 2.0 (legacy)', category: 'MCP Transport' }},
+            { id: 'http', type: 'transport', position: { x: 850, y: 700 }, data: { label: 'HTTP Transport', description: 'RESTful JSON-RPC, session management, CORS', category: 'MCP Transport' }},
+            { id: 'sse', type: 'transport', position: { x: 1100, y: 700 }, data: { label: 'SSE Transport', description: 'Server-Sent Events for real-time streaming', category: 'MCP Transport' }},
+            { id: 'ws', type: 'transport', position: { x: 1350, y: 700 }, data: { label: 'WebSocket Transport', description: 'Bidirectional WebSocket for interactive agents', category: 'MCP Transport' }},
+        ];
+
+        // Initial edges - dependencies
+        const initialEdges = [
+            // Foundation → Core
+            { id: 'e1', source: 'geom', target: 'sketch', type: 'dependency' },
+            { id: 'e2', source: 'geom', target: 'kernel', type: 'dependency' },
+            { id: 'e3', source: 'sketch', target: 'kernel', type: 'dependency' },
+            { id: 'e4', source: 'kernel', target: 'engine', type: 'dependency' },
+            { id: 'e5', source: 'geom', target: 'engine', type: 'dependency' },
+            { id: 'e6', source: 'sketch', target: 'engine', type: 'dependency' },
+            
+            // Core internal
+            { id: 'e7', source: 'engine', target: 'doc', type: 'dependency' },
+            { id: 'e8', source: 'engine', target: 'io', type: 'dependency' },
+            { id: 'e9', source: 'kernel', target: 'io', type: 'dependency' },
+            { id: 'e10', source: 'engine', target: 'render', type: 'dependency' },
+            { id: 'e11', source: 'kernel', target: 'render', type: 'dependency' },
+            { id: 'e12', source: 'render', target: 'gpu', type: 'dependency' },
+            
+            // Infrastructure
+            { id: 'e13', source: 'derive', target: 'engine', type: 'dependency' },
+            { id: 'e14', source: 'profile', target: 'engine', type: 'dependency' },
+            { id: 'e15', source: 'testkit', target: 'engine', type: 'dependency' },
+            
+            // Africa domain
+            { id: 'e16', source: 'engine', target: 'africa', type: 'dependency' },
+            { id: 'e17', source: 'kernel', target: 'africa', type: 'dependency' },
+            { id: 'e18', source: 'io', target: 'africa', type: 'dependency' },
+            { id: 'e19', source: 'render', target: 'africa', type: 'dependency' },
+            
+            // MCP
+            { id: 'e20', source: 'engine', target: 'mcp', type: 'dependency' },
+            { id: 'e21', source: 'doc', target: 'mcp', type: 'dependency' },
+            { id: 'e22', source: 'io', target: 'mcp', type: 'dependency' },
+            
+            // Benchmark
+            { id: 'e23', source: 'engine', target: 'benchmark', type: 'dependency' },
+            { id: 'e24', source: 'kernel', target: 'benchmark', type: 'dependency' },
+            
+            // Apps
+            { id: 'e25', source: 'engine', target: 'cli', type: 'dependency' },
+            { id: 'e26', source: 'doc', target: 'cli', type: 'dependency' },
+            { id: 'e27', source: 'io', target: 'cli', type: 'dependency' },
+            { id: 'e28', source: 'mcp', target: 'cli', type: 'dependency' },
+            { id: 'e29', source: 'benchmark', target: 'cli', type: 'dependency' },
+            
+            { id: 'e30', source: 'engine', target: 'web', type: 'dependency' },
+            { id: 'e31', source: 'render', target: 'web', type: 'dependency' },
+            { id: 'e32', source: 'gpu', target: 'web', type: 'dependency' },
+            { id: 'e33', source: 'wasm', target: 'web', type: 'dependency' },
+            
+            { id: 'e34', source: 'engine', target: 'desktop', type: 'dependency' },
+            { id: 'e35', source: 'render', target: 'desktop', type: 'dependency' },
+            { id: 'e36', source: 'gpu', target: 'desktop', type: 'dependency' },
+            { id: 'e37', source: 'egui', target: 'desktop', type: 'dependency' },
+            { id: 'e38', source: 'wgpu', target: 'desktop', type: 'dependency' },
+            
+            // External deps
+            { id: 'e39', source: 'solidcore', target: 'kernel', type: 'dependency' },
+            { id: 'e40', source: 'solidcore', target: 'io', type: 'dependency' },
+            
+            // MCP Transports
+            { id: 'e41', source: 'stdio', target: 'mcp', type: 'dependency', style: { strokeDasharray: '5,5' } },
+            { id: 'e42', source: 'http', target: 'mcp', type: 'dependency', style: { strokeDasharray: '5,5' } },
+            { id: 'e43', source: 'sse', target: 'mcp', type: 'dependency', style: { strokeDasharray: '5,5' } },
+            { id: 'e44', source: 'ws', target: 'mcp', type: 'dependency', style: { strokeDasharray: '5,5' } },
+            { id: 'e45', source: 'axum', target: 'http', type: 'dependency' },
+            { id: 'e46', source: 'axum', target: 'sse', type: 'dependency' },
+            { id: 'e47', source: 'axum', target: 'ws', type: 'dependency' },
+        ];
+
+        // Category colors
+        const categoryColors = {
+            'Foundation': '#58a6ff',
+            'Core': '#a371f7',
+            'Infrastructure': '#ffa657',
+            'Domain Extension': '#3fb950',
+            'AI Integration': '#d2a8ff',
+            'Quality': '#f78166',
+            'Application': '#79c0ff',
+            'External': '#8b949e',
+            'MCP Transport': '#ff7b72',
+        };
+
+        // Crate Node Component
+        function CrateNode({ data, selected, onClick }) {
+            const color = categoryColors[data.category] || '#58a6ff';
+            return (
+                <div className={`crate-node ${selected ? 'selected' : ''}`} onClick={() => onClick()} style={{
+                    background: selected ? color + '33' : 'rgba(33, 38, 45, 0.9)',
+                    border: `2px solid ${selected ? color : 'rgba(48, 54, 61, 0.8)'}`,
+                    borderRadius: '8px',
+                    padding: '12px',
+                    minWidth: '200px',
+                    maxWidth: '240px',
+                    boxShadow: selected ? `0 0 12px ${color}80` : '0 4px 12px rgba(0,0,0,0.3)',
+                    transition: 'all 0.2s',
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                        <div style={{
+                            width: '10px', height: '10px', borderRadius: '50%',
+                            background: color,
+                        }} />
+                        <strong style={{ fontSize: '14px', color: '#e6edf3' }}>{data.label}</strong>
+                        {selected && <span style={{ fontSize: '10px', color: color, background: color + '22', padding: '2px 6px', borderRadius: '4px' }}>{data.category}</span>}
+                    </div>
+                    <p style={{ fontSize: '11px', color: '#8b949e', lineHeight: 1.4 }}>{data.description}</p>
+                    <Handle type="target" position={Position.Left} style={{ background: color }} />
+                    <Handle type="source" position={Position.Right} style={{ background: color }} />
+                </div>
+            );
+        }
+
+        // App Node Component
+        function AppNode({ data, selected, onClick }) {
+            return (
+                <div className={`app-node ${selected ? 'selected' : ''}`} onClick={() => onClick()} style={{
+                    background: selected ? '#a371f733' : 'rgba(33, 38, 45, 0.9)',
+                    border: `2px solid ${selected ? '#a371f7' : 'rgba(48, 54, 61, 0.8)'}`,
+                    borderRadius: '12px',
+                    padding: '12px',
+                    minWidth: '200px',
+                    maxWidth: '240px',
+                    boxShadow: selected ? '0 0 12px #a371f780' : '0 4px 12px rgba(0,0,0,0.3)',
+                    transition: 'all 0.2s',
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                        <div style={{
+                            width: '10px', height: '10px', borderRadius: '3px',
+                            background: '#a371f7',
+                        }} />
+                        <strong style={{ fontSize: '14px', color: '#e6edf3' }}>{data.label}</strong>
+                        {selected && <span style={{ fontSize: '10px', color: '#a371f7', background: '#a371f722', padding: '2px 6px', borderRadius: '4px' }}>{data.category}</span>}
+                    </div>
+                    <p style={{ fontSize: '11px', color: '#8b949e', lineHeight: 1.4 }}>{data.description}</p>
+                    <Handle type="target" position={Position.Left} style={{ background: '#a371f7' }} />
+                </div>
+            );
+        }
+
+        // External Node Component
+        function ExternalNode({ data, selected, onClick }) {
+            return (
+                <div className={`external-node ${selected ? 'selected' : ''}`} onClick={() => onClick()} style={{
+                    background: selected ? '#8b949e33' : 'rgba(22, 27, 34, 0.9)',
+                    border: `2px dashed ${selected ? '#8b949e' : 'rgba(48, 54, 61, 0.5)'}`,
+                    borderRadius: '8px',
+                    padding: '12px',
+                    minWidth: '180px',
+                    maxWidth: '220px',
+                    boxShadow: selected ? '0 0 12px #8b949e80' : '0 4px 12px rgba(0,0,0,0.3)',
+                    transition: 'all 0.2s',
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                        <div style={{
+                            width: '10px', height: '10px', borderRadius: '50%',
+                            background: '#8b949e',
+                        }} />
+                        <strong style={{ fontSize: '13px', color: '#8b949e' }}>{data.label}</strong>
+                        {selected && <span style={{ fontSize: '10px', color: '#8b949e', background: '#8b949e22', padding: '2px 6px', borderRadius: '4px' }}>{data.category}</span>}
+                    </div>
+                    <p style={{ fontSize: '11px', color: '#6e7681', lineHeight: 1.4 }}>{data.description}</p>
+                    <Handle type="source" position={Position.Right} style={{ background: '#8b949e' }} />
+                </div>
+            );
+        }
+
+        // Transport Node Component
+        function TransportNode({ data, selected, onClick }) {
+            return (
+                <div className={`transport-node ${selected ? 'selected' : ''}`} onClick={() => onClick()} style={{
+                    background: selected ? '#ff7b7233' : 'rgba(33, 38, 45, 0.9)',
+                    border: `2px solid ${selected ? '#ff7b72' : 'rgba(48, 54, 61, 0.8)'}`,
+                    borderRadius: '8px',
+                    padding: '12px',
+                    minWidth: '180px',
+                    maxWidth: '220px',
+                    boxShadow: selected ? '0 0 12px #ff7b7280' : '0 4px 12px rgba(0,0,0,0.3)',
+                    transition: 'all 0.2s',
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                        <div style={{
+                            width: '10px', height: '10px', borderRadius: '50%',
+                            background: '#ff7b72',
+                        }} />
+                        <strong style={{ fontSize: '13px', color: '#e6edf3' }}>{data.label}</strong>
+                        {selected && <span style={{ fontSize: '10px', color: '#ff7b72', background: '#ff7b7222', padding: '2px 6px', borderRadius: '4px' }}>{data.category}</span>}
+                    </div>
+                    <p style={{ fontSize: '11px', color: '#8b949e', lineHeight: 1.4 }}>{data.description}</p>
+                    <Handle type="target" position={Position.Left} style={{ background: '#ff7b72' }} />
+                </div>
+            );
+        }
+
+        // Dependency Edge Component
+        function DependencyEdge({ startX, startY, endX, endY, data, style, path }) {
+            const color = data.category === 'MCP Transport' ? '#ff7b72' : '#58a6ff80';
+            const strokeWidth = data.category === 'MCP Transport' ? 2 : 1.5;
+            const strokeDasharray = style?.strokeDasharray || 'none';
+            
+            return (
+                <path
+                    d={path}
+                    stroke={color}
+                    strokeWidth={strokeWidth}
+                    strokeDasharray={strokeDasharray}
+                    fill="none"
+                    style={{
+                        filter: 'drop-shadow(0 0 4px ' + color + ')',
+                        transition: 'stroke 0.2s',
+                    }}
+                />
+            );
+        }
+
+        // Main App
+        function App() {
+            const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
+            const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+            const [selectedNode, setSelectedNode] = useState(null);
+            const [filterCategory, setFilterCategory] = useState('all');
+            const [searchQuery, setSearchQuery] = useState('');
+
+            const categories = [...new Set(nodes.map(n => n.data.category))];
+
+            const handleNodeClick = useCallback((_, node) => {
+                setSelectedNode(node);
+            }, []);
+
+            const handleConnect = useCallback((params) => setEdges((eds) => addEdge(params, eds)), [setEdges]);
+
+            const filteredNodes = nodes.filter(node => {
+                const matchesCategory = filterCategory === 'all' || node.data.category === filterCategory;
+                const matchesSearch = node.data.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                                    node.data.description.toLowerCase().includes(searchQuery.toLowerCase());
+                return matchesCategory && matchesSearch;
+            });
+
+            const onConnect = useCallback((params) => {
+                if (params.source === params.target) return;
+                setEdges((eds) => addEdge({ ...params, type: 'dependency', animated: true }, eds));
+            }, [setEdges]);
+
+            return (
+                <div style={{ width: '100%', height: '100%' }}>
+                    {/* Controls */}
+                    <div className="controls">
+                        <select
+                            value={filterCategory}
+                            onChange={(e) => setFilterCategory(e.target.value)}
+                            style={{
+                                padding: '8px 12px',
+                                background: '#21262d',
+                                border: '1px solid #30363d',
+                                borderRadius: '6px',
+                                color: '#e6edf3',
+                                fontSize: '14px',
+                            }}
+                        >
+                            <option value="all">All Categories</option>
+                            {categories.map(cat => (
+                                <option key={cat} value={cat}>{cat}</option>
+                            ))}
+                        </select>
+                        
+                        <div className="search-box">
+                            <input
+                                type="text"
+                                placeholder="Search nodes..."
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                            />
+                        </div>
+                    </div>
+
+                    {/* Node Info Panel */}
+                    {selectedNode && (
+                        <div className="node-info">
+                            <h3>{selectedNode.data.label}</h3>
+                            <p>{selectedNode.data.description}</p>
+                            <div className="meta">
+                                <strong>Category:</strong> {selectedNode.data.category}<br/>
+                                <strong>ID:</strong> {selectedNode.id}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Legend */}
+                    <div className="legend">
+                        <h3>Categories</h3>
+                        {Object.entries(categoryColors).map(([cat, color]) => (
+                            <div key={cat} className="legend-item">
+                                <div className="legend-color" style={{ background: color }} />
+                                <span>{cat}</span>
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* React Flow */}
+                    <ReactFlow
+                        nodes={filteredNodes}
+                        edges={edges}
+                        onNodesChange={onNodesChange}
+                        onEdgesChange={onEdgesChange}
+                        onConnect={onConnect}
+                        onNodeClick={handleNodeClick}
+                        nodeTypes={nodeTypes}
+                        edgeTypes={edgeTypes}
+                        fitView
+                        attributionPosition="bottom-left"
+                    >
+                        <Background
+                            color="#161b22"
+                            gap={20}
+                            size={1}
+                        />
+                        <Controls />
+                        <MiniMap
+                            nodeColor={(node) => categoryColors[node.data?.category] || '#58a6ff'}
+                            maskColor="rgba(13, 17, 23, 0.8)"
+                        />
+                    </ReactFlow>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>

@@ -1,0 +1,28 @@
+[package]
+name = "solidcraft-africa"
+description = "SolidCraft African domain parametric models: solar, water, housing, agriculture, manufacturing, construction for African markets"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = []
+
+[dependencies]
+solidcore-record = { workspace = true }
+solidcraft-geom = { workspace = true }
+solidcraft-sketch = { workspace = true }
+solidcraft-kernel = { workspace = true }
+solidcraft-engine = { workspace = true }
+solidcraft-io = { workspace = true }
+solidcraft-render = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+log = { workspace = true }
+# For parameter validation and units
+num-traits = "0.2"

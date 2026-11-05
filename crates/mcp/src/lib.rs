@@ -1,6 +1,6 @@
 //! SolidCraft MCP server.
 //!
-//! JSON-RPC 2.0 over stdio (newline-delimited), implementing the MCP lifecycle, tools and
+//! JSON-RPC 2.0 over stdio (newline-delimited), HTTP, SSE, and WebSocket, implementing the MCP lifecycle, tools and
 //! resources. Tools map onto the control-channel methods (`engine.execute`, `document.inspect`,
 //! `ui.render`…, see `docs/control-protocol.md`), served either by an in-process headless
 //! [`Headless`] session or by a running app through its loopback control port ([`Remote`]), so a
@@ -14,11 +14,13 @@ mod options;
 mod server;
 mod skill_reference;
 mod tools;
+mod transport;
 
 pub use backend::{Auto, Backend, Headless, Remote};
 pub use options::{COMPACT_ENV, COMPACT_FLAG, Options};
 pub use server::{PROTOCOL_VERSION, SUPPORTED_VERSIONS, Server};
 pub use tools::{call_tool, call_tool_with, tool_definitions, tool_definitions_with};
+pub use transport::{serve_http, serve_all, HttpMcpState, create_router};
 
 use std::path::PathBuf;
 

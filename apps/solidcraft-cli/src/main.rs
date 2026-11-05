@@ -91,7 +91,7 @@ const USAGE_KERNEL_CASES: &str = "  solidcraft-cli kernel-cases <case-dir>... [-
 const USAGE_FUZZ: &str =
     "  solidcraft-cli fuzz [--from N] [--count N] [--jobs J] [--timeout S] [--steps N] [--minimise] [--out DIR] [--report FILE]\n";
 /// `mcp`'s lines in the usage.
-const USAGE_MCP: &str = "  solidcraft-cli mcp [--headless] [--in design.sc|script.json] [--connect 127.0.0.1:PORT [--token T]] [--allow-path DIR]... [--allow-any-path]\n                     [--param-check off|warn|strict] [--render-gpu] [--compact]\n      (--compact, SOLIDCRAFT_MCP_COMPACT=1 or the app's Preferences › AI (with --connect): compact tool output for\n       agents: inspect_design summarises sketches and takes `sketches` by name and a `bodies` filter, and tool JSON\n       is not pretty-printed; off by default)\n  solidcraft-cli mcp setup [--dry-run] [--client opencode|claude-desktop|claude-code|cursor] [--live]\n      (adds a `solidcraft` server, with this program's path, to each installed AI client; --live adds `solidcraft-live` for the running app; alias: mcp install)\n";
+const USAGE_MCP: &str = "  solidcraft-cli mcp [--headless] [--in design.sc|script.json] [--connect 127.0.0.1:PORT [--token T]] [--allow-path DIR]... [--allow-any-path]\n                     [--param-check off|warn|strict] [--render-gpu] [--compact]\n      (--compact, SOLIDCRAFT_MCP_COMPACT=1 or the app's Preferences › AI (with --connect): compact tool output for\n       agents: inspect_design summarises sketches and takes `sketches` by name and a `bodies` filter, and tool JSON\n       is not pretty-printed; off by default)\n  solidcraft-cli mcp [--headless] [--in design.sc|script.json] [--http 0.0.0.0:7878] [--http-only] [--no-ws] [--no-sse] [--allow-path DIR]... [--allow-any-path] [--param-check off|warn|strict] [--render-gpu] [--compact]\n      (HTTP, SSE, and WebSocket transports for remote AI agents; --http-only serves only HTTP/SSE/WS without stdio)\n  solidcraft-cli mcp setup [--dry-run] [--client opencode|claude-desktop|claude-code|cursor] [--live]\n      (adds a `solidcraft` server, with this program's path, to each installed AI client; --live adds `solidcraft-live` for the running app; alias: mcp install)\n";
 /// `crashes`'s lines in the usage.
 const USAGE_CRASHES: &str = "  solidcraft-cli crashes [list [--json] | show <id> | replay <id> | dir | clear [<id>]]\n";
 /// `licences`'s lines in the usage.
@@ -780,8 +780,8 @@ fn cmd_mcp_setup(args: &[String]) -> Result<(), String> {
     if ok { Ok(()) } else { Err("mcp setup: some clients could not be configured".into()) }
 }
 
-/// MCP server on stdio: headless (optionally starting from a design or script) or bridged to
-/// a running app's control port. stdout carries only protocol messages. Files the agent's tool
+/// MCP server on stdio, HTTP, SSE, and WebSocket: headless (optionally starting from a design or script) or bridged to
+/// a running app's control port. stdout carries only protocol messages (for stdio). Files the agent's tool
 /// calls reach are confined to `solidcraft_mcp::agent_scope` unless `--allow-any-path` is given.
 fn cmd_mcp(args: &[String]) -> Result<(), String> {
     if matches!(args.first().map(String::as_str), Some("setup" | "install")) {
@@ -823,8 +823,7 @@ fn cmd_mcp(args: &[String]) -> Result<(), String> {
             let mut remote = solidcraft_mcp::Remote::new(addr, flag(args, "--token")).with_param_check(param_check);
             if let Err(e) = remote.try_connect() {
                 solidcraft_engine::note!(
-                    "solidcraft mcp: no SolidCraft app at {addr} yet ({e}); start it with `solidcraft --control {port}` \
-                     (or SOLIDCRAFT_CONTROL_PORT={port}), tool calls connect once it runs"
+                    "solidcraft mcp: no SolidCraft app at {addr} yet ({e}); start it with `solidcraft --control {port}` \\\n                     (or SOLIDCRAFT_CONTROL_PORT={port}), tool calls connect once it runs"
                 );
             }
             Box::new(remote)
@@ -841,7 +840,7 @@ fn cmd_mcp(args: &[String]) -> Result<(), String> {
             if auto && let Some(port) = discover_app() {
                 solidcraft_engine::note!("solidcraft mcp: bridged to the running app at 127.0.0.1:{port} (--headless starts a session of its own)");
                 let remote = solidcraft_mcp::Remote::new(&format!("127.0.0.1:{port}"), flag(args, "--token")).with_param_check(param_check);
-                return serve_mcp(Box::new(remote), scope, options);
+                return serve_mcp_all(Box::new(remote), scope, options, args).await;
             }
             let mut headless = solidcraft_mcp::Headless::default();
             headless.session.param_check = param_check;
@@ -856,7 +855,37 @@ fn cmd_mcp(args: &[String]) -> Result<(), String> {
             }
         }
     };
-    serve_mcp(backend, scope, options)
+    serve_mcp_all(backend, scope, options, args).await
+}
+
+async fn serve_mcp_all(
+    backend: Box<dyn solidcraft_mcp::Backend>,
+    scope: Option<solidcraft_engine::io::vfs::PathScope>,
+    options: solidcraft_mcp::Options,
+    args: &[String],
+) -> Result<(), String> {
+    // Check for HTTP/SSE/WebSocket transport options
+    let http_addr = flag(args, "--http").and_then(|s| s.parse::<std::net::SocketAddr>().ok());
+    let http_only = args.iter().any(|a| a == "--http-only");
+    let ws_enabled = !args.iter().any(|a| a == "--no-ws");
+    let sse_enabled = !args.iter().any(|a| a == "--no-sse");
+
+    if http_only {
+        // HTTP-only mode: serve HTTP/SSE/WS without stdio
+        if let Some(addr) = http_addr {
+            solidcraft_mcp::transport::serve_http(backend, addr, options, scope).await.map_err(|e| e.to_string())
+        } else {
+            Err("mcp: --http-only requires --http HOST:PORT".into())
+        }
+    } else if http_addr.is_some() {
+        // Hybrid mode: serve HTTP/SSE/WS AND stdio
+        solidcraft_mcp::transport::serve_all(backend, http_addr, options, scope).await.map_err(|e| e.to_string())
+    } else {
+        // Legacy stdio-only mode
+        let stdin = std::io::stdin();
+        let stdout = std::io::stdout();
+        solidcraft_mcp::Server::new(backend).with_path_scope(scope).with_options(options).serve(stdin.lock(), stdout.lock()).map_err(|e| e.to_string())
+    }
 }
 
 fn serve_mcp(
