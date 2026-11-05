@@ -34,7 +34,7 @@ pub struct CloudFile {
     pub colors: Vec<u8>,
     /// Points in the file.
     pub source_points: u64,
-    /// The file's other properties of the points (PLY).
+    /// Segments, triangles and the file's other properties (PLY).
     pub complex: solidcraft_doc::point_cloud::Complex,
     pub warnings: Vec<String>,
 }
@@ -94,9 +94,15 @@ pub fn read_point_cloud(bytes: &[u8], file: &str, scale: f64, max_points: usize)
         for (i, p) in r.positions.iter().enumerate() {
             keep.push(*p, colors.get(i).copied());
         }
-        // A point left out would shift every number after it.
+        // A point left out would shift every index and number after it.
         if keep.bad > 0 && !r.complex.is_empty() {
             return Err(IoError::Invalid(format!("{} point(s) are not finite numbers within range", keep.bad)));
+        }
+        if r.bad_faces > 0 {
+            keep.out.warnings.push(format!("{} face(s) could not be read and were left out", r.bad_faces));
+        }
+        if r.cells_left_out > 0 {
+            keep.out.warnings.push(format!("{} edge(s) and face(s) left out, since thinning the points would cut them", r.cells_left_out));
         }
         keep.out.source_points = r.vertices;
         keep.out.complex = r.complex;
@@ -215,6 +221,12 @@ mod tests {
         assert_eq!(&c.points[3..6], &[2000.0, 0.0, 0.0]);
         assert!(c.colors.is_empty());
         assert_eq!(c.warnings.len(), 1, "{:?}", c.warnings);
+        // A thinned file leaves out the edges thinning would cut, and says so.
+        let edged = "ply\nformat ascii 1.0\nelement vertex 4\nproperty float x\nproperty float y\nproperty float z\n\
+            element edge 2\nproperty int vertex1\nproperty int vertex2\nend_header\n0 0 0\n1 0 0\n2 0 0\n3 0 0\n0 1\n2 3\n";
+        let e = read_point_cloud(edged.as_bytes(), "path.ply", 1.0, 2).unwrap();
+        assert_eq!((e.points.len(), e.complex.segment_count()), (6, 0));
+        assert!(e.warnings.iter().any(|w| w.starts_with("2 edge(s) and face(s) left out")), "{:?}", e.warnings);
         let all = read_point_cloud(&ply_points(10), "scan.PLY", 1.0, DEFAULT_MAX_POINTS).unwrap();
         assert_eq!((all.points.len(), all.warnings.len()), (30, 0));
         assert!(read_point_cloud(&ply_points(10), "scan.ply", 0.0, 5).is_err());
